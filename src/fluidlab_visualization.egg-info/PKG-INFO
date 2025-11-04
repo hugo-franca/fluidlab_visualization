@@ -1,0 +1,11 @@
+Metadata-Version: 2.4
+Name: fluidlab_visualization
+Version: 0.0.1
+Summary: Package for processing Basilisk data using Python
+Home-page: https://github.com/hugo-franca/fluidlab_visualization
+Author: Hugo Franca
+Author-email: franca.hugo1@gmail.com
+Dynamic: author
+Dynamic: author-email
+Dynamic: home-page
+Dynamic: summary

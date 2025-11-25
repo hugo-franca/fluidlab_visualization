@@ -13,13 +13,12 @@ setuptools.setup(
         url="https://github.com/hugo-franca/fluidlab_visualization",
         packages=setuptools.find_packages(where="src"),
         package_dir={"": "src"},
-        # python_requires='>=3.11',
-        # classifiers=[
-        #     "Programming Language :: Python :: 3.11",
-        #     "Operating System :: Microsoft :: Windows :: Windows 10"
-        #     "Topic :: Scientific/Engineering",
-        #     ],
-        # install_requires=[line.strip() for line in open("requirements.txt").readlines()],
+        python_requires='>=3.10',
+        classifiers=[
+            "Programming Language :: Python :: 3.10",
+            "Topic :: Scientific/Engineering",
+            ],
+        install_requires=["pyfonts", "matplotlib", "numpy"],
         # setup_requires=['pytest-runner'],
         # tests_require=['pytest'],
         )

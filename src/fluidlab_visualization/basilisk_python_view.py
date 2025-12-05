@@ -168,7 +168,7 @@ def ReadFieldsVTK(file_name : str,
 # Output segments: each segment has two integers. These integers are the indices of the points in the points array
 # Output collection: matplotlib LineCollection ready to be plotted
 
-def read_polydata(filename : str, rotate : float = 0.0, flip_x : bool = False, color = "black"):
+def read_polydata_legacy(filename : str, rotate : float = 0.0, flip_x : bool = False, color = "black"):
 	file = open(filename, "rt")
 	line = file.readline()
 	line = file.readline()
@@ -262,6 +262,63 @@ def read_polydata(filename : str, rotate : float = 0.0, flip_x : bool = False, c
 
 	return simulation_time, points, polygon_points, segments, line_collection, flipped_line_collection
 
+def read_polydata(filename : str, rotate : float = 0.0, flip_y : bool = False, color="black"):
+	file = open(filename, "rb")
+	line = ReadLine_Binary(file)
+	line = ReadLine_Binary(file)
+	time = line.split(" ")[-1]
+	line = ReadLine_Binary(file)
+	line = ReadLine_Binary(file)
+	line = ReadLine_Binary(file)
+	
+	sin_angle = np.sin(np.pi*rotate/(180.0))
+	cos_angle = np.cos(np.pi*rotate/(180.0))
+	rotation_matrix = np.array([[cos_angle, -sin_angle], [sin_angle, cos_angle]])
+
+	flip_mult = [1.0, -1.0] if flip_y else [1.0, 1.0]
+
+	num_points = int( str(line).split(" ")[1] )
+	points = np.zeros(shape=(num_points, 2))
+	for i in range(num_points):
+		points[i, :] = ReadPoint_Float(file)
+	flipped_points = flip_mult*points if flip_y else None
+
+	# Applying rotation
+	points = np.dot(points, rotation_matrix.T)
+	flipped_points = np.dot(flipped_points, rotation_matrix.T) if flip_y else None
+
+
+	line = ReadLine_Binary(file)
+	line = ReadLine_Binary(file)
+	num_polys = int(str(line).split(" ")[1])
+
+	collection = []
+	flipped_collection = []
+	segments = []
+	for i in range(num_polys):
+		num_vertices = ReadInt(file)
+		
+
+		indices_points = []
+		for i in range(num_vertices):
+			indices_points.append( ReadInt(file) )
+
+		if( num_vertices<2 ):
+			continue
+		
+		segments.append( indices_points )
+
+		collection.append(np.array([points[indices_points[0], :], points[indices_points[1], :]]))
+		
+		if( flip_y ):
+			flipped_collection.append(np.array([flipped_points[indices_points[0], :], flipped_points[indices_points[1], :]]))
+            
+	file.close()
+
+	line_collection = LineCollection(collection, colors=color)
+	flipped_line_collection = LineCollection(flipped_collection, colors=color)
+
+	return float(time), points, segments, line_collection, flipped_line_collection
 
 def droplet_properties(filename):
 	file = open(filename, "rt")
@@ -293,9 +350,9 @@ def find_all_vtk_files_in_folder(folder_name):
 	temp_list_files = os.listdir(folder_name)
 	list_files = []
 	for file in temp_list_files:
-		if( file.startswith("Interface") ):
-			list_files.append( int(file[11:-4]) )
-	list_files = np.sort(list_files)
+		if( file.startswith("Interface") and file.endswith(".vtk") ):
+			list_files.append( file[10:-4] )
+	list_files = np.sort(np.array(list_files).astype("float"))
 
 	return list_files
 

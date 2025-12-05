@@ -1,7 +1,0 @@
-README.md
-setup.py
-src/fluidlab_visualization/__init__.py
-src/fluidlab_visualization.egg-info/PKG-INFO
-src/fluidlab_visualization.egg-info/SOURCES.txt
-src/fluidlab_visualization.egg-info/dependency_links.txt
-src/fluidlab_visualization.egg-info/top_level.txt

@@ -47,7 +47,7 @@ class FluidLabFigure:
                 self.subplots = []
                 for i in range(subplots[0]*subplots[1]):
                     self.subplots.append( self.add_subplot(subplots[0], subplots[1], i+1) )
-                self.subplots = np.squeeze( np.reshape(self.subplots, subplots) )
+                self.subplots = np.atleast_2d( np.squeeze( np.reshape(self.subplots, subplots) ) )
             else:
                 print("Unexpected dtype: ", subplots.dtype)
     

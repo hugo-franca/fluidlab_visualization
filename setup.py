@@ -18,7 +18,7 @@ setuptools.setup(
             "Programming Language :: Python :: 3.10",
             "Topic :: Scientific/Engineering",
             ],
-        install_requires=["pyfonts", "matplotlib", "numpy"],
+        install_requires=["pyfonts", "matplotlib", "numpy", "scipy", "cmap"],
         # setup_requires=['pytest-runner'],
         # tests_require=['pytest'],
         )

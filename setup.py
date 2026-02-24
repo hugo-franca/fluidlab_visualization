@@ -18,7 +18,8 @@ setuptools.setup(
             "Programming Language :: Python :: 3.10",
             "Topic :: Scientific/Engineering",
             ],
-        install_requires=["pyfonts", "matplotlib", "numpy", "scipy", "cmap"],
+        install_requires=["pyfonts", "matplotlib", "numpy", "scipy", "cmap",
+                          "fluidlab_visualization @ git+https://github.com/hugo-franca/fluidlab_visualization.git@main"],
         # setup_requires=['pytest-runner'],
         # tests_require=['pytest'],
         )

@@ -409,6 +409,61 @@ def read_polydata(filename : str, only_2D : bool = True, rotate_2D : float = 0.0
 	print("ERROR. read_polydata: need to implement 3D version.")
 	exit()
 
+def read_polydata_pyvista(filename, reflect_axis=None, color="yellow", extra_shape = None):
+	import pyvista as pv
+	mesh_vtk = pv.read(filename)
+
+	if( reflect_axis=="xy" ):
+		mesh_x = mesh_vtk.reflect(normal=(1, 0, 0), point=(0, 0, 0))
+		mesh_y = mesh_vtk.reflect(normal=(0, 1, 0), point=(0, 0, 0))
+		mesh_xy = mesh_x.reflect(normal=(0, 1, 0), point=(0, 0, 0))
+		mesh = mesh_vtk.merge([mesh_x, mesh_y, mesh_xy], merge_points=True)
+	elif( reflect_axis=="xz" ):
+		mesh_x = mesh_vtk.reflect(normal=(1, 0, 0), point=(0, 0, 0))
+		mesh_z = mesh_vtk.reflect(normal=(0, 0, 1), point=(0, 0, 0))
+		mesh_xz = mesh_x.reflect(normal=(0, 0, 1), point=(0, 0, 0))
+		mesh = mesh_vtk.merge([mesh_x, mesh_z, mesh_xz], merge_points=True)
+
+
+	plotter = pv.Plotter(off_screen=True, window_size=(1200, 900))
+	if( extra_shape ):
+		plotter.add_mesh(
+			extra_shape,
+			color="#4BC8AD",
+			smooth_shading=True
+		)
+
+
+	plotter.add_mesh(
+		mesh,
+		color=color,
+		show_edges=False,
+		smooth_shading=True
+	)
+
+	# --- camera setup ---
+	center = [0, 0, 0]
+	radius_view =  5.0
+	if( reflect_axis=="xy" ):
+		camera_pos = (center[0], center[1], center[2] + 3*radius_view) 
+	elif( reflect_axis=="xz" ):
+		camera_pos = (center[0], center[1] + 3*radius_view, center[2]) 
+	plotter.camera_position = [
+		camera_pos,  # camera position
+		center,                                        # focal point
+		(0, 1, 0) if reflect_axis=="xy" else (0, 0, 1),                                     # view-up
+	]
+
+	plotter.enable_parallel_projection()
+	plotter.camera.parallel_scale = radius_view
+	plotter.set_background("black")
+	plotter.show(auto_close=False)
+
+	img = plotter.screenshot(return_img=True)
+	plotter.close()
+
+	return img
+
 def droplet_properties(filename):
 	file = open(filename, "rt")
 	line = file.readline()

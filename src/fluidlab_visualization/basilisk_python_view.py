@@ -51,7 +51,7 @@ def ReadFieldsVTK(file_name : str,
 				  color_fields : str | Callable[[dict], float], cmap_fields, crange=[None, None], 
 				  color_fields_mirror : str | Callable[[dict], float] | None = None, cmap_fields_mirror = None, crange_mirror=[None, None], mirror_direction = "y", 
 				  cell_edges_color : str | None = None, cell_edges_width : float = 0.5,
-				  rasterize=False):
+				  rasterized=False):
 	"""
 	PARAMETERS
 	file_name: name of the mesh.vtk file to read
@@ -151,7 +151,7 @@ def ReadFieldsVTK(file_name : str,
 	min_values, max_values = np.min(values), np.max(values)
 	norm_colors = mpl.colors.Normalize(vmin=crange[0] if crange[0] else min_values, vmax=crange[1] if crange[1] else max_values) 
 	array_colors = cmap_fields( norm_colors( values ) )
-	poly_collection = PolyCollection(array_cell_vertices, facecolors=array_colors, edgecolor=cell_edges_color, linewidth=cell_edges_width)
+	poly_collection = PolyCollection(array_cell_vertices, facecolors=array_colors, edgecolor=cell_edges_color, linewidth=cell_edges_width, rasterized=rasterized)
 
 	# Setting cell colours for the mirror part (if requested) and making the PolyCollection
 	if( color_fields_mirror ):
@@ -161,7 +161,7 @@ def ReadFieldsVTK(file_name : str,
 		array_colors_mirror = cmap_fields_mirror( norm_colors_mirror( values_mirror ) )
 		mirror_direction = 0 if mirror_direction=="x" else 1 if mirror_direction=="y" else None
 		array_cell_vertices[:, :, mirror_direction] *= -1.0
-		poly_collection_mirror = PolyCollection(array_cell_vertices, facecolors=array_colors_mirror, edgecolor=cell_edges_color, linewidth=cell_edges_width)
+		poly_collection_mirror = PolyCollection(array_cell_vertices, facecolors=array_colors_mirror, edgecolor=cell_edges_color, linewidth=cell_edges_width, rasterized=rasterized)
 		return array_cell_centers, array_cell_sizes, dict_values, poly_collection, poly_collection_mirror
 	
 	return array_cell_centers, array_cell_sizes, dict_values, poly_collection

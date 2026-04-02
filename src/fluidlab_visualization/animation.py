@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 import shutil
+from pathlib import Path
 
 
 class FluidLabAnimation():
@@ -25,7 +26,8 @@ class FluidLabAnimation():
                                 delete_frames : bool = True):
         
         # Calling ffmpeg externally to put all frames together and make the video
-        os.system('%sffmpeg -y -framerate %s -i %s\\frame%%04d.png -b 5000k %s' % (ffmpeg_folder, str(framerate), self.frames_folder_name, animation_file_name))
+        path_images = Path(self.frames_folder_name) / "frame%04d.png"
+        os.system('%sffmpeg -y -framerate %s -i %s -b 5000k %s' % (ffmpeg_folder, str(framerate), path_images, animation_file_name))
 
         # Deleting the folder with temporary frames
         if( delete_frames and os.path.isdir(self.frames_folder_name) ):

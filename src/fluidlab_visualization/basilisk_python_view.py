@@ -8,6 +8,7 @@ from typing import Callable
 from cmap import Colormap
 import struct
 import os
+from numpy.typing import ArrayLike
 
 def ReadLine_Binary(file):
 	line = ""
@@ -303,7 +304,7 @@ def read_polydata_3D(filename : str, rotate : float = 0.0, flip_y : bool = False
 	return float(time), points, segments
 
 
-def read_polydata(filename : str, only_2D : bool = True, rotate_2D : float = 0.0, flip_y : bool = False, 
+def read_polydata(filename : str, only_2D : bool = True, rotate_2D : float = 0.0, flip : str | None = None, 
 				  color : str = "black", color_range = [None, None], colormap = None):
 	"""
 	This function reads a VTK file "Interface_XXXX.vtk" coming from one of our Basilisk simulations.
@@ -329,14 +330,14 @@ def read_polydata(filename : str, only_2D : bool = True, rotate_2D : float = 0.0
 	cos_angle = np.cos(np.pi*rotate_2D/(180.0))
 	rotation_matrix = np.array([[cos_angle, -sin_angle], [sin_angle, cos_angle]])
 
-	flip_mult = [1.0, -1.0, 1.0] if flip_y else [1.0, 1.0, 1.0]
+	flip = [-1, 1, 1] if flip=="x" else [1, -1, 1] if flip=="y" else None
 
 	# Loading all the points into a numpy [n x 3] array
 	num_points = int( str(line).split(" ")[1] )
 	points = np.zeros(shape=(num_points, 3))
 	for i in range(num_points):
 		points[i, :] = ReadPoint_Float(file)
-	flipped_points = flip_mult*points if flip_y else None
+	flipped_points = flip*points if flip else None
 
 	# Reading how many lines (in 2D) or polygons we will have
 	line = ReadLine_Binary(file)
@@ -346,8 +347,7 @@ def read_polydata(filename : str, only_2D : bool = True, rotate_2D : float = 0.0
 	# If 2D: Discarding the third coordinate and applying rotation
 	if( only_2D ):
 		points = np.dot(points[:, :2], rotation_matrix.T)
-		flipped_points = np.dot(flipped_points[:, :2], rotation_matrix.T) if flip_y else None
-
+		flipped_points = np.dot(flipped_points[:, :2], rotation_matrix.T) if flip else None
 
 	# Looping over each line (in 2D) or polygon (in 3D) and reading which vertices define it
 	collection = []
@@ -370,7 +370,7 @@ def read_polydata(filename : str, only_2D : bool = True, rotate_2D : float = 0.0
 
 		if( only_2D ):
 			collection.append(np.array([points[indices_points[0], :2], points[indices_points[1], :2]]))
-			if( flip_y ):
+			if( flip ):
 				flipped_collection.append(np.array([flipped_points[indices_points[0], :], flipped_points[indices_points[1], :]]))
             
 

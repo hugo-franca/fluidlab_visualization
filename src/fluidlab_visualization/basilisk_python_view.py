@@ -490,6 +490,24 @@ def droplet_properties(filename):
 	file.close()
 	return droplet_radius
 
+def read_tracer_particles(filename):
+	file = open(filename, "rt")
+	line = file.readline()
+	line = file.readline()
+	time = line.split(" ")[-1]
+	line = file.readline()
+	line = file.readline()
+	line = file.readline()
+
+	# Loading all the points into a numpy [n x 3] array
+	num_points = int( str(line).split(" ")[1] )
+	points = np.zeros(shape=(num_points, 2))
+	for i in range(num_points):
+		points[i, :] = np.array( file.readline().split(" ")[:2], dtype=float)
+
+	file.close()
+	return points
+
 def find_all_vtk_files_in_folder(folder_name):
 	temp_list_files = os.listdir(folder_name)
 	list_files = []

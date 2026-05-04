@@ -9,6 +9,9 @@ from cmap import Colormap
 import struct
 import os
 from numpy.typing import ArrayLike
+from scipy.spatial.distance import cdist
+from scipy.optimize import linear_sum_assignment
+
 
 def ReadLine_Binary(file):
 	line = ""
@@ -48,7 +51,7 @@ def ReadFloat(file):
 
 
 def ReadFieldsVTK(file_name : str, 
-				  color_fields : str | Callable[[dict], float], cmap_fields, crange=[None, None], 
+				  color_fields : str | Callable[[dict], float] | list, cmap_fields, crange=[None, None], 
 				  color_fields_mirror : str | Callable[[dict], float] | None = None, cmap_fields_mirror = None, crange_mirror=[None, None], mirror_direction = "y", 
 				  cell_edges_color : str | None = None, cell_edges_width : float = 0.5,
 				  rasterized=False):
@@ -146,12 +149,22 @@ def ReadFieldsVTK(file_name : str,
 	file.close()
 
 
+	
+	
+	color_fields = [color_fields] if not isinstance(color_fields, list) else color_fields
+	crange = [crange] if not isinstance(crange[0], list) else crange
+	cmap_fields = [cmap_fields] if not isinstance(cmap_fields, list) else cmap_fields
+
 	# Setting cell colours and making the PolyCollection that will be visualized
-	values = dict_values[color_fields] if (color_fields in dict_values.keys()) else color_fields(dict_values)
-	min_values, max_values = np.min(values), np.max(values)
-	norm_colors = mpl.colors.Normalize(vmin=crange[0] if crange[0] else min_values, vmax=crange[1] if crange[1] else max_values) 
-	array_colors = cmap_fields( norm_colors( values ) )
-	poly_collection = PolyCollection(array_cell_vertices, facecolors=array_colors, edgecolor=cell_edges_color, linewidth=cell_edges_width, rasterized=rasterized)
+	poly_collection = []
+	for i in range(len(color_fields)):
+		values = dict_values[color_fields[i]] if (color_fields[i] in dict_values.keys()) else color_fields[i](dict_values)
+		min_values, max_values = np.min(values), np.max(values)
+		norm_colors = mpl.colors.Normalize(vmin=crange[i][0] if crange[i][0] else min_values, vmax=crange[i][1] if crange[i][1] else max_values) 
+		array_colors = cmap_fields[i]( norm_colors( values ) )
+		poly_collection.append( PolyCollection(array_cell_vertices, facecolors=array_colors, edgecolor=cell_edges_color, linewidth=cell_edges_width, rasterized=rasterized) )
+	poly_collection = poly_collection[0] if len(poly_collection)==1 else poly_collection
+
 
 	# Setting cell colours for the mirror part (if requested) and making the PolyCollection
 	if( color_fields_mirror ):
@@ -305,7 +318,7 @@ def read_polydata_3D(filename : str, rotate : float = 0.0, flip_y : bool = False
 
 
 def read_polydata(filename : str, only_2D : bool = True, rotate_2D : float = 0.0, flip : str | None = None, 
-				  color : str = "black", color_range = [None, None], colormap = None):
+				  color : str = "black", color_range = [None, None], colormap = None, number_copies = 1):
 	"""
 	This function reads a VTK file "Interface_XXXX.vtk" coming from one of our Basilisk simulations.
 
@@ -401,8 +414,11 @@ def read_polydata(filename : str, only_2D : bool = True, rotate_2D : float = 0.0
 		color = colormap( norm_colors( values ) )
 
 	if( only_2D ):
-		line_collection = LineCollection(collection, colors=color)
-		flipped_line_collection = LineCollection(flipped_collection, colors=color) if len(flipped_collection)>0 else None
+		line_collection = [LineCollection(collection, colors=color) for i in range(number_copies)]
+		flipped_line_collection = [LineCollection(flipped_collection, colors=color) for i in range(number_copies) ] if len(flipped_collection)>0 else None
+		line_collection = line_collection if len(line_collection)>1 else line_collection[0]
+		if( flipped_line_collection is not None ):
+			flipped_line_collection = flipped_line_collection if len(flipped_line_collection)>1 else flipped_line_collection[0]
 
 		return float(time), dict_values, points, segments, line_collection, flipped_line_collection
 	
@@ -490,7 +506,7 @@ def droplet_properties(filename):
 	file.close()
 	return droplet_radius
 
-def read_tracer_particles(filename):
+def read_tracer_particles(filename, previous_positions = None, periodic_box_size = None):
 	file = open(filename, "rt")
 	line = file.readline()
 	line = file.readline()
@@ -505,6 +521,29 @@ def read_tracer_particles(filename):
 	for i in range(num_points):
 		points[i, :] = np.array( file.readline().split(" ")[:2], dtype=float)
 
+
+	# Sometimes the particles can change ordering in Basilisk between timesteps
+	# If you provide the positions of particles in the previous timestep, we try below to identify the correct ordering
+	if( previous_positions is not None ):
+
+		if( periodic_box_size ):
+
+			# Expand arrays for broadcasting
+			dx = previous_positions[:, None, 0] - points[None, :, 0]
+			dy = previous_positions[:, None, 1] - points[None, :, 1]
+
+			# Apply periodic wrapping in x
+			dx = np.abs(dx)
+			dx = np.minimum(dx, periodic_box_size - dx)
+
+			# Standard Euclidean distance
+			dist_matrix = np.sqrt(dx**2 + dy**2)
+		else:
+			dist_matrix = cdist(previous_positions, points)  # Computing distance matrix: shape (N, N)
+
+		row_ind, col_ind = linear_sum_assignment(dist_matrix) # solving assignment problem between the consecutive timesteps
+		points = points[col_ind, :] # Reordering
+		
 	file.close()
 	return points
 

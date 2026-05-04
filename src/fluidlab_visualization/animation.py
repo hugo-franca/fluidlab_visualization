@@ -5,7 +5,8 @@ import numpy as np
 import os
 import shutil
 from pathlib import Path
-
+import multiprocessing as mp
+from functools import partial
 
 class FluidLabAnimation():
 
@@ -19,6 +20,16 @@ class FluidLabAnimation():
         if( not os.path.isdir(frames_folder_name) ):
             os.mkdir(frames_folder_name)
 
+    def add_frame(self, figure: FluidLabFigure | Figure, dpi : int = 72, preview : bool = False):
+        figure =  figure._matplotlib_fig if isinstance(figure, FluidLabFigure) else figure
+
+        plt.figure(figure)
+
+        if( preview ):
+            plt.show()
+        plt.savefig("%s/frame%04d.png" % (self.frames_folder_name, self.current_frame_index), dpi=dpi)
+        plt.close()
+        self.current_frame_index += 1
 
     def finalize_animation(self, animation_file_name : str = "new_video.mp4", 
                                 ffmpeg_folder : str = "", 
@@ -33,14 +44,27 @@ class FluidLabAnimation():
         if( delete_frames and os.path.isdir(self.frames_folder_name) ):
             shutil.rmtree(self.frames_folder_name)
 
-    def add_frame(self, figure: FluidLabFigure | Figure, dpi : int = 72, preview : bool = False):
-        figure =  figure._matplotlib_fig if isinstance(figure, FluidLabFigure) else figure
+    def create_animation_from_frame_function(self, function_generate_frame: callable, number_timesteps : int, args = None):
 
-        plt.figure(figure)
+        # array_frame_numbers = list( range(0, number_timesteps, 1) )
+        # func = partial(function_generate_frame, animation=self)
 
-        if( preview ):
-            plt.show()
-        plt.savefig("%s/frame%04d.png" % (self.frames_folder_name, self.current_frame_index), dpi=dpi)
-        plt.close()
-        self.current_frame_index += 1
+        with mp.Pool() as p:
+            # p.map(func, array_frame_numbers)
+            p.apply_async(function_generate_frame)
+
+        # def func(aaa):
+        #     print(aaa)
+
+
+        # p = mp.Process(target=func, args=(self,))
+        # p.start()
+        # p.join()
+
+        # p = mp.Process(target=func, args=(self,))
+        # p.start()
+        # p.join()
+
+
+
 

@@ -10,7 +10,7 @@ DEFAULT_FONTSIZE = 25
 
 class FluidLabFigure:
     def __init__(self, fontsize=DEFAULT_FONTSIZE, usetex=False, 
-                 subplots: ArrayLike | str | None = None, 
+                 subplots: ArrayLike | str | None = None, width_ratios = None, height_ratios = None,
                  darkmode=False, *args, **kwargs):
         figsize = np.array(kwargs['figsize']) if 'figsize' in kwargs.keys() else DEFAULT_FIGSIZE
         figsize[0] = DEFAULT_FIGSIZE[0] if figsize[0]==None else figsize[0]
@@ -34,14 +34,29 @@ class FluidLabFigure:
             'axes.linewidth': 1
         })
 
-        self._matplotlib_fig = plt.figure(*args, **kwargs)
+        
 
         if( subplots ):
              
             if( isinstance(subplots, str) ):
+
                 self.subplots = {}
 
+                label_matrix = np.array( [list(row) for row in subplots.split(";")] )
+
+                rows, columns = label_matrix.shape
+                # self._matplotlib_fig, all_ax = plt.subplots(rows, columns, *args, **kwargs)
+
+                # self._matplotlib_fig = plt.figure(*args, **kwargs)
+                # outer_gs = self._matplotlib_fig.add_gridspec(rows, columns, height_ratios=height_ratios, width_ratios=width_ratios)
+                # gs_velocity = plt.subplots(1, 4, subplot_spec = outer_gs[1], wspace=wspace, width_ratios=width_ratios)
+
+                self._matplotlib_fig, self.subplots = plt.subplot_mosaic(label_matrix, width_ratios=width_ratios, height_ratios=height_ratios, *args, **kwargs)
+        
+
             elif( np.issubdtype(np.array(subplots).dtype, np.integer) ):
+                self._matplotlib_fig = plt.figure(*args, **kwargs)
+
                 subplots = np.array(subplots)
 
                 self.subplots = []
@@ -49,7 +64,10 @@ class FluidLabFigure:
                     self.subplots.append( self.add_subplot(subplots[0], subplots[1], i+1) )
                 self.subplots = np.atleast_2d( np.squeeze( np.reshape(self.subplots, subplots) ) )
             else:
+                self._matplotlib_fig = plt.figure(*args, **kwargs)
                 print("Unexpected dtype: ", subplots.dtype)
+        else:
+            self._matplotlib_fig = plt.figure(*args, **kwargs)
     
     def add_subplot(self, *args, **kwargs):
         new_ax = self._matplotlib_fig.add_subplot(*args, **kwargs)

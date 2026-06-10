@@ -372,7 +372,7 @@ def read_polydata(filename : str, only_2D : bool = True, rotate_2D : float = 0.0
 		num_vertices = ReadInt(file) # How many vertices in this line/polygon
 		
 		indices_points = [] # List of vertices in this line/polygon
-		for i in range(num_vertices):
+		for j in range(num_vertices):
 			indices_points.append( ReadInt(file) )
 
 		# Discarding degenerate cases that have less than 2 vertices
@@ -386,7 +386,7 @@ def read_polydata(filename : str, only_2D : bool = True, rotate_2D : float = 0.0
 			collection.append(np.array([points[indices_points[0], :2], points[indices_points[1], :2]]))
 			if( flip ):
 				flipped_collection.append(np.array([flipped_points[indices_points[0], :], flipped_points[indices_points[1], :]]))
-            
+	
 
 	# Now we are going to read the scalar data associated to each polygon
 	line = ReadLine_Binary(file) # New line

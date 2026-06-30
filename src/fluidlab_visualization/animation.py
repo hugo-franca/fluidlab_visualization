@@ -34,7 +34,8 @@ class FluidLabAnimation():
     def finalize_animation(self, animation_file_name : str = "new_video.mp4", 
                                 ffmpeg_folder : str = "", 
                                 framerate : int = 10, 
-                                delete_frames : bool = True):
+                                delete_frames : bool = True,
+                                quality: int = 35):
         
         # Calling ffmpeg externally to put all frames together and make the video
         path_images = Path(self.frames_folder_name) / "frame%04d.png"

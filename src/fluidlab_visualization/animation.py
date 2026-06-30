@@ -38,8 +38,13 @@ class FluidLabAnimation():
         
         # Calling ffmpeg externally to put all frames together and make the video
         path_images = Path(self.frames_folder_name) / "frame%04d.png"
-        os.system('%sffmpeg -y -framerate %s -i %s -b 5000k %s' % (ffmpeg_folder, str(framerate), path_images, animation_file_name))
 
+        os.system(
+            '%sffmpeg -y -framerate %s -i %s '
+            '-c:v libx264 -crf %d -preset veryslow -tune animation -pix_fmt yuv420p '
+            '%s'
+            % (ffmpeg_folder, str(framerate), path_images, quality, animation_file_name)
+        )
         # Deleting the folder with temporary frames
         if( delete_frames and os.path.isdir(self.frames_folder_name) ):
             shutil.rmtree(self.frames_folder_name)

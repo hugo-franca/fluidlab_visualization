@@ -13,6 +13,7 @@ from scipy.spatial.distance import cdist
 from scipy.optimize import linear_sum_assignment
 
 
+
 def ReadLine_Binary(file):
 	line = ""
 	read_stuff = file.read(1).decode('UTF-8')
@@ -426,21 +427,20 @@ def read_polydata(filename : str, only_2D : bool = True, rotate_2D : float = 0.0
 	print("ERROR. read_polydata: need to implement 3D version.")
 	exit()
 
-def read_polydata_pyvista(filename, reflect_axis=None, color="yellow", extra_shape = None):
+def read_polydata_pyvista(filename, reflect_axis=None, color="yellow", extra_shape = None, radius_view = 1.0):
 	import pyvista as pv
-	mesh_vtk = pv.read(filename)
+	mesh = pv.read(filename)
 
 	if( reflect_axis=="xy" ):
-		mesh_x = mesh_vtk.reflect(normal=(1, 0, 0), point=(0, 0, 0))
-		mesh_y = mesh_vtk.reflect(normal=(0, 1, 0), point=(0, 0, 0))
+		mesh_x = mesh.reflect(normal=(1, 0, 0), point=(0, 0, 0))
+		mesh_y = mesh.reflect(normal=(0, 1, 0), point=(0, 0, 0))
 		mesh_xy = mesh_x.reflect(normal=(0, 1, 0), point=(0, 0, 0))
-		mesh = mesh_vtk.merge([mesh_x, mesh_y, mesh_xy], merge_points=True)
+		mesh = mesh.merge([mesh_x, mesh_y, mesh_xy], merge_points=True)
 	elif( reflect_axis=="xz" ):
-		mesh_x = mesh_vtk.reflect(normal=(1, 0, 0), point=(0, 0, 0))
-		mesh_z = mesh_vtk.reflect(normal=(0, 0, 1), point=(0, 0, 0))
+		mesh_x = mesh.reflect(normal=(1, 0, 0), point=(0, 0, 0))
+		mesh_z = mesh.reflect(normal=(0, 0, 1), point=(0, 0, 0))
 		mesh_xz = mesh_x.reflect(normal=(0, 0, 1), point=(0, 0, 0))
-		mesh = mesh_vtk.merge([mesh_x, mesh_z, mesh_xz], merge_points=True)
-
+		mesh = mesh.merge([mesh_x, mesh_z, mesh_xz], merge_points=True)
 
 	plotter = pv.Plotter(off_screen=True, window_size=(1200, 900))
 	if( extra_shape ):
@@ -460,11 +460,11 @@ def read_polydata_pyvista(filename, reflect_axis=None, color="yellow", extra_sha
 
 	# --- camera setup ---
 	center = [0, 0, 0]
-	radius_view =  5.0
 	if( reflect_axis=="xy" ):
 		camera_pos = (center[0], center[1], center[2] + 3*radius_view) 
 	elif( reflect_axis=="xz" ):
 		camera_pos = (center[0], center[1] + 3*radius_view, center[2]) 
+
 	plotter.camera_position = [
 		camera_pos,  # camera position
 		center,                                        # focal point

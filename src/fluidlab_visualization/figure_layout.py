@@ -10,7 +10,7 @@ DEFAULT_FONTSIZE = 25
 
 class FluidLabFigure:
     def __init__(self, fontsize=DEFAULT_FONTSIZE, usetex=False, 
-                 subplots: ArrayLike | str | None = None, width_ratios = None, height_ratios = None,
+                 subplots: ArrayLike | str | None = None, width_ratios = None, height_ratios = None, wspace=None, hspace=None,
                  darkmode=False, *args, **kwargs):
         figsize = np.array(kwargs['figsize']) if 'figsize' in kwargs.keys() else DEFAULT_FIGSIZE
         figsize[0] = DEFAULT_FIGSIZE[0] if figsize[0]==None else figsize[0]
@@ -51,7 +51,8 @@ class FluidLabFigure:
                 # outer_gs = self._matplotlib_fig.add_gridspec(rows, columns, height_ratios=height_ratios, width_ratios=width_ratios)
                 # gs_velocity = plt.subplots(1, 4, subplot_spec = outer_gs[1], wspace=wspace, width_ratios=width_ratios)
 
-                self._matplotlib_fig, self.subplots = plt.subplot_mosaic(label_matrix, width_ratios=width_ratios, height_ratios=height_ratios, *args, **kwargs)
+                gridspec_kw={"wspace": wspace, "hspace": hspace}
+                self._matplotlib_fig, self.subplots = plt.subplot_mosaic(label_matrix, width_ratios=width_ratios, height_ratios=height_ratios, gridspec_kw=gridspec_kw, *args, **kwargs)
         
 
             elif( np.issubdtype(np.array(subplots).dtype, np.integer) ):

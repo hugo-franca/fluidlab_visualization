@@ -8,6 +8,7 @@ from typing import Callable
 from cmap import Colormap
 import struct
 import os
+import pyvista as pv
 from numpy.typing import ArrayLike
 from scipy.spatial.distance import cdist
 from scipy.optimize import linear_sum_assignment
@@ -332,84 +333,34 @@ def read_polydata(filename : str, only_2D : bool = True, rotate_2D : float = 0.0
 		color: color of the lines of the interface. Can be a matplotlib solid color or the name of a property contained in the VTK file. In this case we will color based on that property with a colormap
 	"""
 
-	file = open(filename, "rb")
-	line = ReadLine_Binary(file)
-	line = ReadLine_Binary(file)
-	time = line.split(" ")[-1]
-	line = ReadLine_Binary(file)
-	line = ReadLine_Binary(file)
-	line = ReadLine_Binary(file)
-	
-	# Rotation matrix, which will be used later if requested
-	sin_angle = np.sin(np.pi*rotate_2D/(180.0))
-	cos_angle = np.cos(np.pi*rotate_2D/(180.0))
-	rotation_matrix = np.array([[cos_angle, -sin_angle], [sin_angle, cos_angle]])
+	mesh = pv.read(filename)
 
-	flip = [-1, 1, 1] if flip=="x" else [1, -1, 1] if flip=="y" else None
+	if( flip is not None ):
+		print("need to implement flip in the new version")
+	if( rotate_2D!=0.0 ):
+		print("need to implement rotate_2D in the new version")
 
-	# Loading all the points into a numpy [n x 3] array
-	num_points = int( str(line).split(" ")[1] )
-	points = np.zeros(shape=(num_points, 3))
-	for i in range(num_points):
-		points[i, :] = ReadPoint_Float(file)
-	flipped_points = flip*points if flip else None
 
-	# Reading how many lines (in 2D) or polygons we will have
-	line = ReadLine_Binary(file)
-	line = ReadLine_Binary(file)
-	num_polys = int(str(line).split(" ")[1])
-
-	# If 2D: Discarding the third coordinate and applying rotation
-	if( only_2D ):
-		points = np.dot(points[:, :2], rotation_matrix.T)
-		flipped_points = np.dot(flipped_points[:, :2], rotation_matrix.T) if flip else None
-
-	# Looping over each line (in 2D) or polygon (in 3D) and reading which vertices define it
-	collection = []
-	flipped_collection = []
 	segments = []
-	degenerate_indices = []
-	for i in range(num_polys):
-		num_vertices = ReadInt(file) # How many vertices in this line/polygon
-		
-		indices_points = [] # List of vertices in this line/polygon
-		for j in range(num_vertices):
-			indices_points.append( ReadInt(file) )
+	cells = mesh.lines
+	points = mesh.points[:, :2]
+	i = 0
+	while i < len(cells):
+		n = cells[i] # number of points in this line
+		ids = cells[i+1:i+1+n]
+		segments.append(points[ids])
+		i += n + 1
 
-		# Discarding degenerate cases that have less than 2 vertices
-		if( num_vertices<2 ):
-			degenerate_indices.append( i )
-			continue
+		if(n<2):
+			print("degenerate ", len(segments), segments[-1])
 
-		segments.append( indices_points )
+	# print(segments[0])
+	line_collection = [LineCollection(segments, colors=color, rasterized=rasterized) for i in range(number_copies)]
 
-		if( only_2D ):
-			collection.append(np.array([points[indices_points[0], :2], points[indices_points[1], :2]]))
-			if( flip ):
-				flipped_collection.append(np.array([flipped_points[indices_points[0], :], flipped_points[indices_points[1], :]]))
-	
 
-	# Now we are going to read the scalar data associated to each polygon
-	line = ReadLine_Binary(file) # New line
-	line = ReadLine_Binary(file) # CELL_DATA X
-	dict_values = {}
-	line = ReadLine_Binary(file) # SCALARS
-	while( (line is not None) and line.split(" ")[0]=="SCALARS" ):
-		field_name = line.split(" ")[1] 
-		line = ReadLine_Binary(file) # LOOKUP_TABLE
-		dict_values[field_name] = np.zeros(shape=(len(segments), ))
-		i_segment = 0
-		for i in range(num_polys):
-			if( not(i in degenerate_indices) ):
-				dict_values[field_name][i_segment] = ReadFloat(file)
-				i_segment += 1
-		line = ReadLine_Binary(file)
-		line = ReadLine_Binary(file)
 
-	file.close()
-
-	if( color in dict_values.keys() ):
-		values = dict_values[color]
+	if( color in mesh.cell_data.keys() ):
+		values = mesh.cell_data[color]
 		min_values, max_values = np.min(values), np.max(values)
 		norm_colors = mpl.colors.Normalize(vmin=color_range[0] if color_range[0] else min_values, vmax=color_range[1] if color_range[1] else max_values) 
 		colormap = Colormap('bids:plasma') if colormap is None else colormap
@@ -417,19 +368,17 @@ def read_polydata(filename : str, only_2D : bool = True, rotate_2D : float = 0.0
 
 	if( only_2D ):
 		line_collection = [LineCollection(collection, colors=color, rasterized=rasterized) for i in range(number_copies)]
-		flipped_line_collection = [LineCollection(flipped_collection, colors=color, rasterized=rasterized) for i in range(number_copies) ] if len(flipped_collection)>0 else None
 		line_collection = line_collection if len(line_collection)>1 else line_collection[0]
 		if( flipped_line_collection is not None ):
 			flipped_line_collection = flipped_line_collection if len(flipped_line_collection)>1 else flipped_line_collection[0]
 
-		return float(time), dict_values, points, segments, line_collection, flipped_line_collection
+		return float(time), dict(mesh.cell_data), points, segments, line_collection
 	
 	print("ERROR. read_polydata: need to implement 3D version.")
 	exit()
 
-def read_polydata_pyvista(filename, reflect_axis=None, color="yellow", extra_shape = None, radius_view = 1.0):
+def pyvista_view_3D_mesh(mesh, reflect_axis=None, color="yellow", extra_shape = None, radius_view = 1.0, off_screen=True):
 	import pyvista as pv
-	mesh = pv.read(filename)
 
 	if( reflect_axis=="xy" ):
 		mesh_x = mesh.reflect(normal=(1, 0, 0), point=(0, 0, 0))
@@ -442,21 +391,10 @@ def read_polydata_pyvista(filename, reflect_axis=None, color="yellow", extra_sha
 		mesh_xz = mesh_x.reflect(normal=(0, 0, 1), point=(0, 0, 0))
 		mesh = mesh.merge([mesh_x, mesh_z, mesh_xz], merge_points=True)
 
-	plotter = pv.Plotter(off_screen=True, window_size=(1200, 900))
+	plotter = pv.Plotter(off_screen=off_screen, window_size=(1200, 900))
+	plotter.add_mesh(mesh, color=color, show_edges=False, smooth_shading=True, scalars="rim", cmap=["lightgrey", "red"])
 	if( extra_shape ):
-		plotter.add_mesh(
-			extra_shape,
-			color="#4BC8AD",
-			smooth_shading=True
-		)
-
-
-	plotter.add_mesh(
-		mesh,
-		color=color,
-		show_edges=False,
-		smooth_shading=True
-	)
+		plotter.add_mesh(extra_shape, color="yellow", smooth_shading=True, line_width=5)
 
 	# --- camera setup ---
 	center = [0, 0, 0]
@@ -480,6 +418,8 @@ def read_polydata_pyvista(filename, reflect_axis=None, color="yellow", extra_sha
 	plotter.close()
 
 	return img
+	
+
 
 def droplet_properties(filename):
 	file = open(filename, "rt")

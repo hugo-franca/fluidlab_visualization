@@ -377,8 +377,11 @@ def read_polydata(filename : str, only_2D : bool = True, rotate_2D : float = 0.0
 	print("ERROR. read_polydata: need to implement 3D version.")
 	exit()
 
-def pyvista_view_3D_mesh(mesh, reflect_axis=None, color="yellow", extra_shape = None, radius_view = 1.0, off_screen=True):
+def pyvista_view_3D_mesh(mesh, reflect_axis=None, color="yellow", extra_shape = None, radius_view = 1.0, off_screen=True, view_scalar = None):
 	import pyvista as pv
+
+	if( isinstance(mesh, str) ):
+		mesh = pv.read(mesh)
 
 	if( reflect_axis=="xy" ):
 		mesh_x = mesh.reflect(normal=(1, 0, 0), point=(0, 0, 0))
@@ -392,21 +395,23 @@ def pyvista_view_3D_mesh(mesh, reflect_axis=None, color="yellow", extra_shape = 
 		mesh = mesh.merge([mesh_x, mesh_z, mesh_xz], merge_points=True)
 
 	plotter = pv.Plotter(off_screen=off_screen, window_size=(1200, 900))
-	plotter.add_mesh(mesh, color=color, show_edges=False, smooth_shading=True, scalars="rim", cmap=["lightgrey", "red"])
+	plotter.add_mesh(mesh, color=color, show_edges=False, smooth_shading=True, scalars=view_scalar, cmap=["lightgrey", "red"])
 	if( extra_shape ):
 		plotter.add_mesh(extra_shape, color="yellow", smooth_shading=True, line_width=5)
 
 	# --- camera setup ---
 	center = [0, 0, 0]
-	if( reflect_axis=="xy" ):
+	if( reflect_axis=="xy" or reflect_axis==None ):
 		camera_pos = (center[0], center[1], center[2] + 3*radius_view) 
+		view_up = (0, 1, 0)
 	elif( reflect_axis=="xz" ):
 		camera_pos = (center[0], center[1] + 3*radius_view, center[2]) 
+		view_up = (0, 0, 1)
 
 	plotter.camera_position = [
 		camera_pos,  # camera position
 		center,                                        # focal point
-		(0, 1, 0) if reflect_axis=="xy" else (0, 0, 1),                                     # view-up
+		view_up,                                     # view-up
 	]
 
 	plotter.enable_parallel_projection()

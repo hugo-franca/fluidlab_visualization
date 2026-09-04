@@ -56,13 +56,13 @@ class FluidLabFigure:
         
 
             elif( np.issubdtype(np.array(subplots).dtype, np.integer) ):
-                self._matplotlib_fig = plt.figure(*args, **kwargs)
+                self._matplotlib_fig, self.subplots = plt.subplots(subplots[0], subplots[1], *args, **kwargs)
 
-                subplots = np.array(subplots)
-
-                self.subplots = []
-                for i in range(subplots[0]*subplots[1]):
-                    self.subplots.append( self.add_subplot(subplots[0], subplots[1], i+1) )
+                # self._matplotlib_fig = plt.figure(*args, **kwargs)
+                # subplots = np.array(subplots)
+                # self.subplots = []
+                # for i in range(subplots[0]*subplots[1]):
+                #     self.subplots.append( self.add_subplot(subplots[0], subplots[1], i+1) )
                 self.subplots = np.atleast_2d( np.squeeze( np.reshape(self.subplots, subplots) ) )
             else:
                 self._matplotlib_fig = plt.figure(*args, **kwargs)

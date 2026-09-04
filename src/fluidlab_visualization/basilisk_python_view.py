@@ -82,77 +82,23 @@ def ReadFieldsVTK(file_name : str,
 	except FileNotFoundError:
 		return None, None, None, None, None, None
 	
-	line = ReadLine_Binary(file) # vtk DataFile Version 2.0
-	line = ReadLine_Binary(file) # MESH. time X
-	line = ReadLine_Binary(file) # BINARY
-	line = ReadLine_Binary(file) # DATASET UNSTRUCTURED_GRID
-	line = ReadLine_Binary(file) # FIELD FieldData 1
-	line = ReadLine_Binary(file) # time 1 1 float
-	simulation_time = ReadFloat(file)
+	mesh = pv.read(file_name)
 
-	line = ReadLine_Binary(file) # \n
-	line = ReadLine_Binary(file) # POINTS %d float	
-	num_points = int(line.split(" ")[1])
-	num_cells = np.rint(num_points/4).astype(int)
+
+
+	# Constructing the square cells in the mesh to visualize
+	polygons = []
+	polygons_mirror = []
+	for i in range(mesh.n_cells):
+		cell = mesh.get_cell(i)
+		points = mesh.points[cell.point_ids, :2]
+		polygons.append(points)
+		if( color_fields_mirror is not None ):
+			points_mirror = points.copy()
+			points_mirror[:, 1] *= -1
+			polygons_mirror.append(points_mirror)
 	
-	array_cell_centers = np.zeros(shape=(num_cells, 2))
-	array_cell_sizes = np.zeros(shape=(num_cells, ))
-	array_cell_vertices = np.zeros(shape=(num_cells, 4, 2))
 
-	for i in range(num_cells):
-
-		# Discarding the third coordinate for now... only 2D
-		p1 = ReadPoint_Float(file)[:2]
-		p2 = ReadPoint_Float(file)[:2]
-		p3 = ReadPoint_Float(file)[:2]
-		p4 = ReadPoint_Float(file)[:2]
-		
-		# Adding a new nico_cell to the list
-		array_cell_vertices[i] = [p1, p2, p3, p4]
-		
-		array_cell_centers[i] = 0.25*(p1 + p2 + p3 + p4)
-		array_cell_sizes[i] = p2[0] - p1[0]
-		# cell_delta = 2.0*np.abs(cell_center[0] - p1[0])
-
-	# Reading the ordering of the points in the cells
-	# Doesnt actually matter, because I know the ordering I used...
-	line = ReadLine_Binary(file)
-	line = ReadLine_Binary(file)
-	for i in range(num_cells):
-		read_stuff = ReadInt(file)
-		read_stuff = ReadInt(file)
-		read_stuff = ReadInt(file)
-		read_stuff = ReadInt(file)
-		read_stuff = ReadInt(file)
-
-	# Reading CELL_TYPES
-	# Doesnt matter because Im assuming its always squares
-	line = ReadLine_Binary(file)
-	line = ReadLine_Binary(file)
-	for i in range(num_cells):
-		read_stuff = ReadInt(file)
-
-	line = ReadLine_Binary(file)
-	line = ReadLine_Binary(file)
-
-	# Starting to read printed field data
-	dict_values = {}
-	line = ReadLine_Binary(file) # SCALARS
-	while( (line is not None) and line.split(" ")[0]=="SCALARS" ):
-		field_name = line.split(" ")[1] 
-		line = ReadLine_Binary(file) # LOOKUP_TABLE
-		dict_values[field_name] = np.zeros(shape=(num_cells, ))
-		for i in range(num_cells):
-			dict_values[field_name][num_cells - i - 1] = ReadFloat(file)
-		line = ReadLine_Binary(file)
-		line = ReadLine_Binary(file)
-
-	# Finished reading the file
-	file.close()
-
-
-	
-	
 	color_fields = [color_fields] if not isinstance(color_fields, list) else color_fields
 	crange = [crange] if not isinstance(crange[0], list) else crange
 	cmap_fields = [cmap_fields] if not isinstance(cmap_fields, list) else cmap_fields
@@ -160,26 +106,31 @@ def ReadFieldsVTK(file_name : str,
 	# Setting cell colours and making the PolyCollection that will be visualized
 	poly_collection = []
 	for i in range(len(color_fields)):
-		values = dict_values[color_fields[i]] if (color_fields[i] in dict_values.keys()) else color_fields[i](dict_values)
+		values = mesh.cell_data[color_fields[i]] if (color_fields[i] in mesh.cell_data.keys()) else color_fields[i](mesh.cell_data)
 		min_values, max_values = np.min(values), np.max(values)
 		norm_colors = mpl.colors.Normalize(vmin=crange[i][0] if crange[i][0] else min_values, vmax=crange[i][1] if crange[i][1] else max_values) 
 		array_colors = cmap_fields[i]( norm_colors( values ) )
-		poly_collection.append( PolyCollection(array_cell_vertices, facecolors=array_colors, edgecolor=cell_edges_color, linewidth=cell_edges_width, rasterized=rasterized) )
+		poly_collection.append( PolyCollection(polygons, facecolors=array_colors, edgecolor=cell_edges_color, linewidth=cell_edges_width, rasterized=rasterized) )
 	poly_collection = poly_collection[0] if len(poly_collection)==1 else poly_collection
 
 
 	# Setting cell colours for the mirror part (if requested) and making the PolyCollection
 	if( color_fields_mirror ):
-		values_mirror = dict_values[color_fields_mirror] if (color_fields_mirror in dict_values.keys()) else color_fields_mirror(dict_values)
-		min_values_mirror, max_values_mirror = np.min(values_mirror), np.max(values_mirror)
-		norm_colors_mirror = mpl.colors.Normalize(vmin=crange_mirror[0] if crange_mirror[0] else min_values_mirror, vmax=crange_mirror[1] if crange_mirror[1] else max_values_mirror) 
-		array_colors_mirror = cmap_fields_mirror( norm_colors_mirror( values_mirror ) )
-		mirror_direction = 0 if mirror_direction=="x" else 1 if mirror_direction=="y" else None
-		array_cell_vertices[:, :, mirror_direction] *= -1.0
-		poly_collection_mirror = PolyCollection(array_cell_vertices, facecolors=array_colors_mirror, edgecolor=cell_edges_color, linewidth=cell_edges_width, rasterized=rasterized)
-		return array_cell_centers, array_cell_sizes, dict_values, poly_collection, poly_collection_mirror
+		color_fields_mirror = [color_fields_mirror] if not isinstance(color_fields_mirror, list) else color_fields_mirror
+		crange_mirror = [crange_mirror] if not isinstance(crange_mirror[0], list) else crange_mirror
+		cmap_fields_mirror = [cmap_fields_mirror] if not isinstance(cmap_fields_mirror, list) else cmap_fields_mirror
+		poly_collection_mirror = []
+		for i in range(len(color_fields_mirror)):
+			values_mirror = mesh.cell_data[color_fields_mirror[i]] if (color_fields_mirror[i] in mesh.cell_data.keys()) else color_fields[i](mesh.cell_data)
+			min_values_mirror, max_values_mirror = np.min(values_mirror), np.max(values_mirror)
+			norm_colors_mirror = mpl.colors.Normalize(vmin=crange_mirror[i][0] if crange_mirror[i][0] else min_values_mirror, vmax=crange_mirror[i][1] if crange_mirror[i][1] else max_values_mirror) 
+			array_colors_mirror = cmap_fields_mirror[i]( norm_colors_mirror( values_mirror ) )
+			mirror_direction = 0 if mirror_direction=="x" else 1 if mirror_direction=="y" else None
+			poly_collection_mirror.append( PolyCollection(polygons_mirror, facecolors=array_colors_mirror, edgecolor=cell_edges_color, linewidth=cell_edges_width, rasterized=rasterized) )
+		poly_collection_mirror = poly_collection_mirror[0] if len(poly_collection_mirror)==1 else poly_collection_mirror
+		return mesh, poly_collection, poly_collection_mirror
 	
-	return array_cell_centers, array_cell_sizes, dict_values, poly_collection
+	return mesh, poly_collection
 
 
 # Reading the reconstructed interface between the water and air
@@ -336,7 +287,8 @@ def read_polydata(filename : str, only_2D : bool = True, rotate_2D : float = 0.0
 	mesh = pv.read(filename)
 
 	if( flip is not None ):
-		print("need to implement flip in the new version")
+		flipped_mesh = mesh.reflect(normal=(1, 0, 0) if flip=='x' else (0, 1, 0), point=(0, 0, 0))
+		mesh = mesh.merge([mesh, flipped_mesh], merge_points=True)
 	if( rotate_2D!=0.0 ):
 		print("need to implement rotate_2D in the new version")
 
@@ -351,8 +303,8 @@ def read_polydata(filename : str, only_2D : bool = True, rotate_2D : float = 0.0
 		segments.append(points[ids])
 		i += n + 1
 
-		if(n<2):
-			print("degenerate ", len(segments), segments[-1])
+		# if(n<2):
+		# 	print("degenerate ", len(segments), segments[-1])
 
 	# print(segments[0])
 	line_collection = [LineCollection(segments, colors=color, rasterized=rasterized) for i in range(number_copies)]
@@ -367,12 +319,8 @@ def read_polydata(filename : str, only_2D : bool = True, rotate_2D : float = 0.0
 		color = colormap( norm_colors( values ) )
 
 	if( only_2D ):
-		line_collection = [LineCollection(collection, colors=color, rasterized=rasterized) for i in range(number_copies)]
 		line_collection = line_collection if len(line_collection)>1 else line_collection[0]
-		if( flipped_line_collection is not None ):
-			flipped_line_collection = flipped_line_collection if len(flipped_line_collection)>1 else flipped_line_collection[0]
-
-		return float(time), dict(mesh.cell_data), points, segments, line_collection
+		return dict(mesh.cell_data), points, segments, line_collection
 	
 	print("ERROR. read_polydata: need to implement 3D version.")
 	exit()

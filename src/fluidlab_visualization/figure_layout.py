@@ -53,7 +53,9 @@ class FluidLabFigure:
 
                 gridspec_kw={"wspace": wspace, "hspace": hspace}
                 self._matplotlib_fig, self.subplots = plt.subplot_mosaic(label_matrix, width_ratios=width_ratios, height_ratios=height_ratios, gridspec_kw=gridspec_kw, *args, **kwargs)
-        
+                if( self.darkmode ):
+                    for ax_key in self.subplots:
+                        make_axis_darkmode(self.subplots[ax_key])
 
             elif( np.issubdtype(np.array(subplots).dtype, np.integer) ):
                 self._matplotlib_fig, self.subplots = plt.subplots(subplots[0], subplots[1], *args, **kwargs)
@@ -64,6 +66,9 @@ class FluidLabFigure:
                 # for i in range(subplots[0]*subplots[1]):
                 #     self.subplots.append( self.add_subplot(subplots[0], subplots[1], i+1) )
                 self.subplots = np.atleast_2d( np.squeeze( np.reshape(self.subplots, subplots) ) )
+                if( self.darkmode ):
+                    for new_ax in self.subplots.flatten():
+                        make_axis_darkmode(new_ax)
             else:
                 self._matplotlib_fig = plt.figure(*args, **kwargs)
                 print("Unexpected dtype: ", subplots.dtype)
@@ -74,13 +79,7 @@ class FluidLabFigure:
         new_ax = self._matplotlib_fig.add_subplot(*args, **kwargs)
 
         if( self.darkmode ):
-            new_ax.set_facecolor("black")
-            new_ax.xaxis.label.set_color('white')
-            new_ax.tick_params(axis='x', colors='white')
-            new_ax.yaxis.label.set_color('white')
-            new_ax.tick_params(axis='y', colors='white')
-            for axis in ['top', 'bottom', 'left', 'right']:
-                new_ax.spines[axis].set_color('white')
+            make_axis_darkmode(new_ax)
 
         return new_ax
     
@@ -88,6 +87,14 @@ class FluidLabFigure:
         # Delegate unknown attributes to the wrapped Figure
         return getattr(self._matplotlib_fig, name)
 
+def make_axis_darkmode(new_ax):
+    new_ax.set_facecolor("black")
+    new_ax.xaxis.label.set_color('white')
+    new_ax.tick_params(axis='x', colors='white')
+    new_ax.yaxis.label.set_color('white')
+    new_ax.tick_params(axis='y', colors='white')
+    for axis in ['top', 'bottom', 'left', 'right']:
+        new_ax.spines[axis].set_color('white')
 
 def set_global_font(font_name: str = "Baloo Tamma 2"):
     # Setting up default font
@@ -102,6 +109,8 @@ def set_global_font(font_name: str = "Baloo Tamma 2"):
     plt.rcParams['mathtext.fontset'] = 'stixsans'
     plt.rcParams['mathtext.it'] = 'Baloo Tamma 2'
     plt.rcParams['mathtext.rm'] = 'Baloo Tamma 2'
+
+    
 
 def get_global_font():
     return plt.rcParams['font.family']

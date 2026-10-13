@@ -53,7 +53,7 @@ def ReadFloat(file):
 
 
 def ReadFieldsVTK(file_name : str, 
-				  color_fields : str | Callable[[dict], float] | list, cmap_fields, crange=[None, None], 
+				  color_fields : str | Callable[[dict], float] | list | None = None, cmap_fields = None, crange = [None, None], 
 				  color_fields_mirror : str | Callable[[dict], float] | None = None, cmap_fields_mirror = None, crange_mirror=[None, None], mirror_direction = "y", 
 				  cell_edges_color : str | None = None, cell_edges_width : float = 0.5,
 				  rasterized=False):
@@ -84,7 +84,9 @@ def ReadFieldsVTK(file_name : str,
 	
 	mesh = pv.read(file_name)
 
-
+	# If the user simply wanted to load the mesh and not visualize anything, we return here
+	if( color_fields is None ):
+		return mesh
 
 	# Constructing the square cells in the mesh to visualize
 	polygons = []
@@ -98,7 +100,6 @@ def ReadFieldsVTK(file_name : str,
 			points_mirror[:, 1] *= -1
 			polygons_mirror.append(points_mirror)
 	
-
 	color_fields = [color_fields] if not isinstance(color_fields, list) else color_fields
 	crange = [crange] if not isinstance(crange[0], list) else crange
 	cmap_fields = [cmap_fields] if not isinstance(cmap_fields, list) else cmap_fields
@@ -128,9 +129,9 @@ def ReadFieldsVTK(file_name : str,
 			mirror_direction = 0 if mirror_direction=="x" else 1 if mirror_direction=="y" else None
 			poly_collection_mirror.append( PolyCollection(polygons_mirror, facecolors=array_colors_mirror, edgecolor=cell_edges_color, linewidth=cell_edges_width, rasterized=rasterized) )
 		poly_collection_mirror = poly_collection_mirror[0] if len(poly_collection_mirror)==1 else poly_collection_mirror
-		return mesh, poly_collection, poly_collection_mirror
+		return mesh, poly_collection, poly_collection_mirror, norm_colors, norm_colors_mirror
 	
-	return mesh, poly_collection
+	return mesh, poly_collection, norm_colors
 
 
 # Reading the reconstructed interface between the water and air

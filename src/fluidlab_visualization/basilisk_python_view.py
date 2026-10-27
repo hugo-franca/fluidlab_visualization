@@ -272,7 +272,7 @@ def read_polydata_3D(filename : str, rotate : float = 0.0, flip_y : bool = False
 
 
 def read_polydata(filename : str, only_2D : bool = True, rotate_2D : float = 0.0, flip : str | None = None, 
-				  color : str = "black", color_range = [None, None], colormap = None, number_copies = 1,
+				  color : str = "black", lw=1, color_range = [None, None], colormap = None, number_copies = 1,
 				  rasterized = False):
 	"""
 	This function reads a VTK file "Interface_XXXX.vtk" coming from one of our Basilisk simulations.
@@ -308,7 +308,7 @@ def read_polydata(filename : str, only_2D : bool = True, rotate_2D : float = 0.0
 		# 	print("degenerate ", len(segments), segments[-1])
 
 	# print(segments[0])
-	line_collection = [LineCollection(segments, colors=color, rasterized=rasterized) for i in range(number_copies)]
+	line_collection = [LineCollection(segments, colors=color, linewidths=lw, rasterized=rasterized) for i in range(number_copies)]
 
 
 

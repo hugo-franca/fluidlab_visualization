@@ -8,39 +8,70 @@ from typing import Callable
 from cmap import Colormap
 import struct
 import os
+import zipfile
+from functools import lru_cache
+from vtkmodules.vtkIOLegacy import vtkGenericDataObjectReader
 import pyvista as pv
 from numpy.typing import ArrayLike
 from scipy.spatial.distance import cdist
 from scipy.optimize import linear_sum_assignment
 
+@lru_cache(maxsize=8)
+def _open_zip(zip_path):
+    return zipfile.ZipFile(zip_path)          # opened once per archive, reused on later calls
 
+def read_vtk_from_zip(zip_path, member):
+    """
+    Read a legacy .vtk file stored inside a ZIP, entirely in memory (no temp files).
+    Returns None if the archive or the member does not exist.
+    """
+    if not os.path.isfile(zip_path):
+        return None
+    
+    try:
+        data = _open_zip(zip_path).read(member.replace("//", "/"))
+    except KeyError:
+        return None
+    
+    reader = vtkGenericDataObjectReader()
+    reader.ReadFromInputStringOn()
+    reader.SetBinaryInputString(data, len(data))
+    reader.ReadAllScalarsOn() # without this, only the first SCALARS array is read
+    reader.ReadAllVectorsOn()
+    reader.ReadAllNormalsOn()
+    reader.ReadAllTensorsOn()
+    reader.ReadAllColorScalarsOn()
+    reader.ReadAllTCoordsOn()
+    reader.ReadAllFieldsOn()
+    reader.Update()
+    return pv.wrap(reader.GetOutput())
 
 def ReadLine_Binary(file):
-	line = ""
-	read_stuff = file.read(1).decode('UTF-8')
-	index = 0
-	while( read_stuff!='\n' ):
-		index += 1
-		line += read_stuff
-		read_stuff = file.read(1).decode('UTF-8')
-		if(index>500):
-			return None
-	return line
+    line = ""
+    read_stuff = file.read(1).decode('UTF-8')
+    index = 0
+    while( read_stuff!='\n' ):
+        index += 1
+        line += read_stuff
+        read_stuff = file.read(1).decode('UTF-8')
+        if(index>500):
+            return None
+    return line
 
 def ReadPoint_Float(file):
-	x = struct.unpack('>f', file.read(4))[0]
-	y = struct.unpack('>f', file.read(4))[0]
-	z = struct.unpack('>f', file.read(4))[0]
-	return np.array([x, y, z])
+    x = struct.unpack('>f', file.read(4))[0]
+    y = struct.unpack('>f', file.read(4))[0]
+    z = struct.unpack('>f', file.read(4))[0]
+    return np.array([x, y, z])
 
 def ReadInt(file):
-	return struct.unpack('>i', file.read(4))[0]
+    return struct.unpack('>i', file.read(4))[0]
 
 def ReadDouble(file):
-	return struct.unpack('>d', file.read(8))[0]
+    return struct.unpack('>d', file.read(8))[0]
 
 def ReadFloat(file):
-	return struct.unpack('>f', file.read(4))[0]
+    return struct.unpack('>f', file.read(4))[0]
 
 # def Find_VTK_Timesteps(vtk_folder):
 # 	temp_list_files = os.listdir(vtk_folder)
@@ -53,85 +84,87 @@ def ReadFloat(file):
 
 
 def ReadFieldsVTK(file_name : str, 
-				  color_fields : str | Callable[[dict], float] | list | None = None, cmap_fields = None, crange = [None, None], 
-				  color_fields_mirror : str | Callable[[dict], float] | None = None, cmap_fields_mirror = None, crange_mirror=[None, None], mirror_direction = "y", 
-				  cell_edges_color : str | None = None, cell_edges_width : float = 0.5,
-				  rasterized=False):
-	"""
-	PARAMETERS
-	file_name: name of the mesh.vtk file to read
-	color_fields: how to colour the cells of the mesh. Can be one of two things:
-		1) A string, with the name of the property you want to visualize in the mesh
-		2) A callable function that makes some operation on the properties and returns a value
-	cmap: colormap
-	crange: range of the colormap. Automatic if left at [None, None]
-	
-	OUTPUT
-	cells: list of cells in the mesh. Each cell is a square and contains:
-			x, y: coordinates of the cell center
-			Delta: size of the cell (its a square of size Delta by Delta)
-			p: pressure
-			vel_v, vel_v: velocity components
-			tau_xx, tau_xy, tau_yy: stress components
-			f: volume fraction
-	collection: matplotlib collection to plot the mesh
-	"""
+                  color_fields : str | Callable[[dict], float] | list | None = None, cmap_fields = None, crange = [None, None], 
+                  color_fields_mirror : str | Callable[[dict], float] | None = None, cmap_fields_mirror = None, crange_mirror=[None, None], mirror_direction = "y", 
+                  cell_edges_color : str | None = None, cell_edges_width : float = 0.5,
+                  rasterized=False, zipped_file=False):
+    """
+    PARAMETERS
+    file_name: name of the mesh.vtk file to read
+    color_fields: how to colour the cells of the mesh. Can be one of two things:
+        1) A string, with the name of the property you want to visualize in the mesh
+        2) A callable function that makes some operation on the properties and returns a value
+    cmap: colormap
+    crange: range of the colormap. Automatic if left at [None, None]
+    
+    OUTPUT
+    cells: list of cells in the mesh. Each cell is a square and contains:
+            x, y: coordinates of the cell center
+            Delta: size of the cell (its a square of size Delta by Delta)
+            p: pressure
+            vel_v, vel_v: velocity components
+            tau_xx, tau_xy, tau_yy: stress components
+            f: volume fraction
+    collection: matplotlib collection to plot the mesh
+    """
 
-	try:
-		file = open(file_name, 'rb')
-	except FileNotFoundError:
-		return None, None, None, None, None, None
-	
-	mesh = pv.read(file_name)
+    if zipped_file:
+        zip_path, member = file_name.split(".zip", 1)
+        mesh = read_vtk_from_zip(zip_path + ".zip", member.lstrip("/\\"))
+    else:
+        mesh = pv.read(file_name) if os.path.isfile(file_name) else None
 
-	# If the user simply wanted to load the mesh and not visualize anything, we return here
-	if( color_fields is None ):
-		return mesh
+    if( mesh is None ):
+        return None
 
-	# Constructing the square cells in the mesh to visualize
-	polygons = []
-	polygons_mirror = []
-	for i in range(mesh.n_cells):
-		cell = mesh.get_cell(i)
-		points = mesh.points[cell.point_ids, :2]
-		polygons.append(points)
-		if( color_fields_mirror is not None ):
-			points_mirror = points.copy()
-			points_mirror[:, 1] *= -1
-			polygons_mirror.append(points_mirror)
-	
-	color_fields = [color_fields] if not isinstance(color_fields, list) else color_fields
-	crange = [crange] if not isinstance(crange[0], list) else crange
-	cmap_fields = [cmap_fields] if not isinstance(cmap_fields, list) else cmap_fields
+    # If the user simply wanted to load the mesh and not visualize anything, we return here
+    if( color_fields is None ):
+        return mesh
 
-	# Setting cell colours and making the PolyCollection that will be visualized
-	poly_collection = []
-	for i in range(len(color_fields)):
-		values = mesh.cell_data[color_fields[i]] if (color_fields[i] in mesh.cell_data.keys()) else color_fields[i](mesh.cell_data)
-		min_values, max_values = np.min(values), np.max(values)
-		norm_colors = mpl.colors.Normalize(vmin=crange[i][0] if crange[i][0] else min_values, vmax=crange[i][1] if crange[i][1] else max_values) 
-		array_colors = cmap_fields[i]( norm_colors( values ) )
-		poly_collection.append( PolyCollection(polygons, facecolors=array_colors, edgecolor=cell_edges_color, linewidth=cell_edges_width, rasterized=rasterized) )
-	poly_collection = poly_collection[0] if len(poly_collection)==1 else poly_collection
+    # Constructing the square cells in the mesh to visualize
+    polygons = []
+    polygons_mirror = []
+    for i in range(mesh.n_cells):
+        cell = mesh.get_cell(i)
+        points = mesh.points[cell.point_ids, :2]
+        polygons.append(points)
+        if( color_fields_mirror is not None ):
+            points_mirror = points.copy()
+            points_mirror[:, 1] *= -1
+            polygons_mirror.append(points_mirror)
+    
+    color_fields = [color_fields] if not isinstance(color_fields, list) else color_fields
+    crange = [crange] if not isinstance(crange[0], list) else crange
+    cmap_fields = [cmap_fields] if not isinstance(cmap_fields, list) else cmap_fields
+
+    # Setting cell colours and making the PolyCollection that will be visualized
+    poly_collection = []
+    for i in range(len(color_fields)):
+        values = mesh.cell_data[color_fields[i]] if (color_fields[i] in mesh.cell_data.keys()) else color_fields[i](mesh.cell_data)
+        min_values, max_values = np.min(values), np.max(values)
+        norm_colors = mpl.colors.Normalize(vmin=crange[i][0] if crange[i][0] else min_values, vmax=crange[i][1] if crange[i][1] else max_values) 
+        array_colors = cmap_fields[i]( norm_colors( values ) )
+        poly_collection.append( PolyCollection(polygons, facecolors=array_colors, edgecolor=cell_edges_color, linewidth=cell_edges_width, rasterized=rasterized) )
+    poly_collection = poly_collection[0] if len(poly_collection)==1 else poly_collection
 
 
-	# Setting cell colours for the mirror part (if requested) and making the PolyCollection
-	if( color_fields_mirror ):
-		color_fields_mirror = [color_fields_mirror] if not isinstance(color_fields_mirror, list) else color_fields_mirror
-		crange_mirror = [crange_mirror] if not isinstance(crange_mirror[0], list) else crange_mirror
-		cmap_fields_mirror = [cmap_fields_mirror] if not isinstance(cmap_fields_mirror, list) else cmap_fields_mirror
-		poly_collection_mirror = []
-		for i in range(len(color_fields_mirror)):
-			values_mirror = mesh.cell_data[color_fields_mirror[i]] if (color_fields_mirror[i] in mesh.cell_data.keys()) else color_fields[i](mesh.cell_data)
-			min_values_mirror, max_values_mirror = np.min(values_mirror), np.max(values_mirror)
-			norm_colors_mirror = mpl.colors.Normalize(vmin=crange_mirror[i][0] if crange_mirror[i][0] else min_values_mirror, vmax=crange_mirror[i][1] if crange_mirror[i][1] else max_values_mirror) 
-			array_colors_mirror = cmap_fields_mirror[i]( norm_colors_mirror( values_mirror ) )
-			mirror_direction = 0 if mirror_direction=="x" else 1 if mirror_direction=="y" else None
-			poly_collection_mirror.append( PolyCollection(polygons_mirror, facecolors=array_colors_mirror, edgecolor=cell_edges_color, linewidth=cell_edges_width, rasterized=rasterized) )
-		poly_collection_mirror = poly_collection_mirror[0] if len(poly_collection_mirror)==1 else poly_collection_mirror
-		return mesh, poly_collection, poly_collection_mirror, norm_colors, norm_colors_mirror
-	
-	return mesh, poly_collection, norm_colors
+    # Setting cell colours for the mirror part (if requested) and making the PolyCollection
+    if( color_fields_mirror ):
+        color_fields_mirror = [color_fields_mirror] if not isinstance(color_fields_mirror, list) else color_fields_mirror
+        crange_mirror = [crange_mirror] if not isinstance(crange_mirror[0], list) else crange_mirror
+        cmap_fields_mirror = [cmap_fields_mirror] if not isinstance(cmap_fields_mirror, list) else cmap_fields_mirror
+        poly_collection_mirror = []
+        for i in range(len(color_fields_mirror)):
+            values_mirror = mesh.cell_data[color_fields_mirror[i]] if (color_fields_mirror[i] in mesh.cell_data.keys()) else color_fields[i](mesh.cell_data)
+            min_values_mirror, max_values_mirror = np.min(values_mirror), np.max(values_mirror)
+            norm_colors_mirror = mpl.colors.Normalize(vmin=crange_mirror[i][0] if crange_mirror[i][0] else min_values_mirror, vmax=crange_mirror[i][1] if crange_mirror[i][1] else max_values_mirror) 
+            array_colors_mirror = cmap_fields_mirror[i]( norm_colors_mirror( values_mirror ) )
+            mirror_direction = 0 if mirror_direction=="x" else 1 if mirror_direction=="y" else None
+            poly_collection_mirror.append( PolyCollection(polygons_mirror, facecolors=array_colors_mirror, edgecolor=cell_edges_color, linewidth=cell_edges_width, rasterized=rasterized) )
+        poly_collection_mirror = poly_collection_mirror[0] if len(poly_collection_mirror)==1 else poly_collection_mirror
+        return mesh, poly_collection, poly_collection_mirror, norm_colors, norm_colors_mirror
+
+    return mesh, poly_collection, norm_colors
 
 
 # Reading the reconstructed interface between the water and air
@@ -142,315 +175,289 @@ def ReadFieldsVTK(file_name : str,
 # Output collection: matplotlib LineCollection ready to be plotted
 
 def read_polydata_legacy(filename : str, rotate : float = 0.0, flip_x : bool = False, color = "black", rasterized : bool = False):
-	file = open(filename, "rt")
-	line = file.readline()
-	line = file.readline()
-	simulation_time = float(line.split(" ")[4])
-	line = file.readline()
-	line = file.readline()
-	line = file.readline()
+    file = open(filename, "rt")
+    line = file.readline()
+    line = file.readline()
+    simulation_time = float(line.split(" ")[4])
+    line = file.readline()
+    line = file.readline()
+    line = file.readline()
 
-	sin_angle = np.sin(np.pi*rotate/(180.0))
-	cos_angle = np.cos(np.pi*rotate/(180.0))
-	
-	flip_mult = [-1.0, 1.0] if flip_x else [1.0, 1.0]
+    sin_angle = np.sin(np.pi*rotate/(180.0))
+    cos_angle = np.cos(np.pi*rotate/(180.0))
+    
+    flip_mult = [-1.0, 1.0] if flip_x else [1.0, 1.0]
 
-	num_points = int( line.split(" ")[1] )
-	points = np.zeros(shape=(num_points, 2))
-	for i in range(num_points):
-		line = file.readline()
-		line = line.split(" ")
-		x = float(line[0])
-		y = float(line[1])
+    num_points = int( line.split(" ")[1] )
+    points = np.zeros(shape=(num_points, 2))
+    for i in range(num_points):
+        line = file.readline()
+        line = line.split(" ")
+        x = float(line[0])
+        y = float(line[1])
 
-		if( rotate!=0.0 ):
-			points[i, 0] = x*cos_angle - y*sin_angle
-			points[i, 1] = x*sin_angle + y*cos_angle
-		else:
-			points[i, 0] = x
-			points[i, 1] = y
+        if( rotate!=0.0 ):
+            points[i, 0] = x*cos_angle - y*sin_angle
+            points[i, 1] = x*sin_angle + y*cos_angle
+        else:
+            points[i, 0] = x
+            points[i, 1] = y
 
 
 
-	line = file.readline()
-	num_polys = int(line.split(" ")[1])
+    line = file.readline()
+    num_polys = int(line.split(" ")[1])
 
-	collection = []
-	flipped_collection = []
+    collection = []
+    flipped_collection = []
 
-	segments = []
-	for i in range(num_polys):
-		line = file.readline()
-		line = line.split(" ")
-		num_vertices = int(line[0])
+    segments = []
+    for i in range(num_polys):
+        line = file.readline()
+        line = line.split(" ")
+        num_vertices = int(line[0])
 
-		if( num_vertices<2 ):
-			continue
+        if( num_vertices<2 ):
+            continue
 
-		p1 = int(line[1])
-		p2 = int(line[2])
-		segments.append( [p1, p2] )
+        p1 = int(line[1])
+        p2 = int(line[2])
+        segments.append( [p1, p2] )
 
-		collection.append(np.array([points[p1, :], points[p2, :]]))
-		
-		if( flip_x ):
-			flipped_collection.append(flip_mult*np.array([points[p1, :], points[p2, :]]))
+        collection.append(np.array([points[p1, :], points[p2, :]]))
+        
+        if( flip_x ):
+            flipped_collection.append(flip_mult*np.array([points[p1, :], points[p2, :]]))
 
-	file.close()
+    file.close()
 
-	line_collection = LineCollection(collection, colors=color, linewidth=1.5, rasterized=rasterized)
-	flipped_line_collection = LineCollection(flipped_collection, colors=color, linewidth=1.5, rasterized=rasterized)
+    line_collection = LineCollection(collection, colors=color, linewidth=1.5, rasterized=rasterized)
+    flipped_line_collection = LineCollection(flipped_collection, colors=color, linewidth=1.5, rasterized=rasterized)
 
-	# ===== Now I try to obtain a connected polygon to describe the interface
-	mid_points = np.array( [0.5*(points[segment[0], :] + points[segment[1], :]) for segment in segments] )
+    # ===== Now I try to obtain a connected polygon to describe the interface
+    mid_points = np.array( [0.5*(points[segment[0], :] + points[segment[1], :]) for segment in segments] )
 
     # Calculating distance between all points to each other
-	distance_matrix = cdist(mid_points, mid_points)
+    distance_matrix = cdist(mid_points, mid_points)
 
-	# Attempting to obtain a mid_point
-	idx_initial = np.argwhere(np.abs(mid_points[:, 1])<0.08).flatten()
-	selected_points = mid_points[idx_initial, :]
-	min_x_center = np.min(selected_points[:, 0])
-	max_x_center = np.max(selected_points[:, 0])
-	com_point = [0.5*(min_x_center + max_x_center), 0.0]
+    # Attempting to obtain a mid_point
+    idx_initial = np.argwhere(np.abs(mid_points[:, 1])<0.08).flatten()
+    selected_points = mid_points[idx_initial, :]
+    min_x_center = np.min(selected_points[:, 0])
+    max_x_center = np.max(selected_points[:, 0])
+    com_point = [0.5*(min_x_center + max_x_center), 0.0]
 
-	idx_initial = np.argwhere(mid_points[:, 0]<com_point[0]).flatten()
-	selected_points = mid_points[idx_initial, :]
-	idx_initial = np.argmin(np.abs(selected_points[:, 1])).flatten()[0]
-	initial_point = selected_points[idx_initial, :]
-	index_first_point = np.argwhere( ((mid_points[:]==initial_point).all(1)) == True ).flatten()[0]
+    idx_initial = np.argwhere(mid_points[:, 0]<com_point[0]).flatten()
+    selected_points = mid_points[idx_initial, :]
+    idx_initial = np.argmin(np.abs(selected_points[:, 1])).flatten()[0]
+    initial_point = selected_points[idx_initial, :]
+    index_first_point = np.argwhere( ((mid_points[:]==initial_point).all(1)) == True ).flatten()[0]
 
-	# print(initial_index, mid_points[initial_index, :])
-	polygon_points = np.zeros_like(mid_points)
-	polygon_points[0, :] = mid_points[index_first_point, :]
-	index_previous_point = index_first_point
-	for i in range(len(mid_points) - 1):
-		distance_matrix[index_previous_point, index_previous_point] = 1e+10
+    # print(initial_index, mid_points[initial_index, :])
+    polygon_points = np.zeros_like(mid_points)
+    polygon_points[0, :] = mid_points[index_first_point, :]
+    index_previous_point = index_first_point
+    for i in range(len(mid_points) - 1):
+        distance_matrix[index_previous_point, index_previous_point] = 1e+10
 
-		index_next_point = np.argmin(distance_matrix[index_previous_point, :]).flatten()
-		polygon_points[i+1, :] = mid_points[index_next_point, :]
+        index_next_point = np.argmin(distance_matrix[index_previous_point, :]).flatten()
+        polygon_points[i+1, :] = mid_points[index_next_point, :]
 
-		distance_matrix[index_previous_point, :] = distance_matrix[:, index_previous_point] = 1e+10        
-		index_previous_point = index_next_point
+        distance_matrix[index_previous_point, :] = distance_matrix[:, index_previous_point] = 1e+10        
+        index_previous_point = index_next_point
 
-	return simulation_time, points, polygon_points, segments, line_collection, flipped_line_collection
+    return simulation_time, points, polygon_points, segments, line_collection, flipped_line_collection
 
 def read_polydata_3D(filename : str, rotate : float = 0.0, flip_y : bool = False, color="black", ignore_z : bool = True):
-	file = open(filename, "rb")
-	line = ReadLine_Binary(file)
-	line = ReadLine_Binary(file)
-	time = line.split(" ")[-1]
-	line = ReadLine_Binary(file)
-	line = ReadLine_Binary(file)
-	line = ReadLine_Binary(file)
-	
-	num_points = int( str(line).split(" ")[1] )
-	points = np.zeros(shape=(num_points, 3))
-	for i in range(num_points):
-		points[i, :] = ReadPoint_Float(file)
+    file = open(filename, "rb")
+    line = ReadLine_Binary(file)
+    line = ReadLine_Binary(file)
+    time = line.split(" ")[-1]
+    line = ReadLine_Binary(file)
+    line = ReadLine_Binary(file)
+    line = ReadLine_Binary(file)
+    
+    num_points = int( str(line).split(" ")[1] )
+    points = np.zeros(shape=(num_points, 3))
+    for i in range(num_points):
+        points[i, :] = ReadPoint_Float(file)
 
-	line = ReadLine_Binary(file)
-	line = ReadLine_Binary(file)
-	num_polys = int(str(line).split(" ")[1])
+    line = ReadLine_Binary(file)
+    line = ReadLine_Binary(file)
+    num_polys = int(str(line).split(" ")[1])
 
-	segments = []
-	for i in range(num_polys):
-		num_vertices = ReadInt(file)
-		
-		indices_points = []
-		for i in range(num_vertices):
-			indices_points.append( ReadInt(file) )
+    segments = []
+    for i in range(num_polys):
+        num_vertices = ReadInt(file)
+        
+        indices_points = []
+        for i in range(num_vertices):
+            indices_points.append( ReadInt(file) )
 
-		if( num_vertices<2 ):
-			continue
-		
-		segments.append( indices_points )
+        if( num_vertices<2 ):
+            continue
+        
+        segments.append( indices_points )
 
-	file.close()
+    file.close()
 
-	return float(time), points, segments
+    return float(time), points, segments
 
 
 def read_polydata(filename : str, only_2D : bool = True, rotate_2D : float = 0.0, flip : str | None = None, 
-				  color : str = "black", lw=1, color_range = [None, None], colormap = None, number_copies = 1,
-				  rasterized = False):
-	"""
-	This function reads a VTK file "Interface_XXXX.vtk" coming from one of our Basilisk simulations.
+                  color : str = "black", lw=1, color_range = [None, None], colormap = None, number_copies = 1,
+                  rasterized = False, zipped_file = False):
+    """
+    This function reads a VTK file "Interface_XXXX.vtk" coming from one of our Basilisk simulations.
 
-	Parameters
-		filename: the name of the interface file
-		2D_only: if this file comes from a 2D simulation, set this as true. If 3D set as false. The output of the function is different in each case.
-		rotate_2D: only relevant if 2D_only=True. You can rotate the visualization by a certain angle. This parameter is that angle (in degrees).
-		flip_y: generate a second data set which is the same as the original, but with the y-coordinates flipped. Cute for axissymetric simulations where only the top half is simulated
-		color: color of the lines of the interface. Can be a matplotlib solid color or the name of a property contained in the VTK file. In this case we will color based on that property with a colormap
-	"""
+    Parameters
+        filename: the name of the interface file
+        2D_only: if this file comes from a 2D simulation, set this as true. If 3D set as false. The output of the function is different in each case.
+        rotate_2D: only relevant if 2D_only=True. You can rotate the visualization by a certain angle. This parameter is that angle (in degrees).
+        flip_y: generate a second data set which is the same as the original, but with the y-coordinates flipped. Cute for axissymetric simulations where only the top half is simulated
+        color: color of the lines of the interface. Can be a matplotlib solid color or the name of a property contained in the VTK file. In this case we will color based on that property with a colormap
+    """
 
-	mesh = pv.read(filename)
+    if zipped_file:
+        zip_path, member = filename.split(".zip", 1)
+        mesh = read_vtk_from_zip(zip_path + ".zip", member.lstrip("/\\"))
+    else:
+        mesh = pv.read(filename) if os.path.isfile(filename) else None
 
-	if( flip is not None ):
-		flipped_mesh = mesh.reflect(normal=(1, 0, 0) if flip=='x' else (0, 1, 0), point=(0, 0, 0))
-		mesh = mesh.merge([mesh, flipped_mesh], merge_points=True)
-	if( rotate_2D!=0.0 ):
-		print("need to implement rotate_2D in the new version")
+    if( mesh is None ):
+        return None, None, None, None
 
-
-	segments = []
-	cells = mesh.lines
-	points = mesh.points[:, :2]
-	i = 0
-	while i < len(cells):
-		n = cells[i] # number of points in this line
-		ids = cells[i+1:i+1+n]
-		segments.append(points[ids])
-		i += n + 1
-
-		# if(n<2):
-		# 	print("degenerate ", len(segments), segments[-1])
-
-	# print(segments[0])
-	line_collection = [LineCollection(segments, colors=color, linewidths=lw, rasterized=rasterized) for i in range(number_copies)]
+    if( flip is not None ):
+        flipped_mesh = mesh.reflect(normal=(1, 0, 0) if flip=='x' else (0, 1, 0), point=(0, 0, 0))
+        mesh = mesh.merge([mesh, flipped_mesh], merge_points=True)
+    if( rotate_2D!=0.0 ):
+        print("need to implement rotate_2D in the new version")
 
 
+    segments = []
+    cells = mesh.lines
+    points = mesh.points[:, :2]
+    i = 0
+    while i < len(cells):
+        n = cells[i] # number of points in this line
+        ids = cells[i+1:i+1+n]
+        segments.append(points[ids])
+        i += n + 1
 
-	if( color in mesh.cell_data.keys() ):
-		values = mesh.cell_data[color]
-		min_values, max_values = np.min(values), np.max(values)
-		norm_colors = mpl.colors.Normalize(vmin=color_range[0] if color_range[0] else min_values, vmax=color_range[1] if color_range[1] else max_values) 
-		colormap = Colormap('bids:plasma') if colormap is None else colormap
-		color = colormap( norm_colors( values ) )
+        # if(n<2):
+        # 	print("degenerate ", len(segments), segments[-1])
 
-	if( only_2D ):
-		line_collection = line_collection if len(line_collection)>1 else line_collection[0]
-		return dict(mesh.cell_data), points, segments, line_collection
-	
-	print("ERROR. read_polydata: need to implement 3D version.")
-	exit()
+    # print(segments[0])
+    line_collection = [LineCollection(segments, colors=color, linewidths=lw, rasterized=rasterized) for i in range(number_copies)]
+
+
+
+    if( color in mesh.cell_data.keys() ):
+        values = mesh.cell_data[color]
+        min_values, max_values = np.min(values), np.max(values)
+        norm_colors = mpl.colors.Normalize(vmin=color_range[0] if color_range[0] else min_values, vmax=color_range[1] if color_range[1] else max_values) 
+        colormap = Colormap('bids:plasma') if colormap is None else colormap
+        color = colormap( norm_colors( values ) )
+
+    if( only_2D ):
+        line_collection = line_collection if len(line_collection)>1 else line_collection[0]
+        return dict(mesh.cell_data), points, segments, line_collection
+    
+    print("ERROR. read_polydata: need to implement 3D version.")
+    exit()
 
 def pyvista_view_3D_mesh(mesh, reflect_axis=None, color="yellow", extra_shape = None, radius_view = 1.0, off_screen=True, view_scalar = None):
-	import pyvista as pv
+    import pyvista as pv
 
-	if( isinstance(mesh, str) ):
-		mesh = pv.read(mesh)
+    if( isinstance(mesh, str) ):
+        mesh = pv.read(mesh)
 
-	if( reflect_axis=="xy" ):
-		mesh_x = mesh.reflect(normal=(1, 0, 0), point=(0, 0, 0))
-		mesh_y = mesh.reflect(normal=(0, 1, 0), point=(0, 0, 0))
-		mesh_xy = mesh_x.reflect(normal=(0, 1, 0), point=(0, 0, 0))
-		mesh = mesh.merge([mesh_x, mesh_y, mesh_xy], merge_points=True)
-	elif( reflect_axis=="xz" ):
-		mesh_x = mesh.reflect(normal=(1, 0, 0), point=(0, 0, 0))
-		mesh_z = mesh.reflect(normal=(0, 0, 1), point=(0, 0, 0))
-		mesh_xz = mesh_x.reflect(normal=(0, 0, 1), point=(0, 0, 0))
-		mesh = mesh.merge([mesh_x, mesh_z, mesh_xz], merge_points=True)
+    if( reflect_axis=="xy" ):
+        mesh_x = mesh.reflect(normal=(1, 0, 0), point=(0, 0, 0))
+        mesh_y = mesh.reflect(normal=(0, 1, 0), point=(0, 0, 0))
+        mesh_xy = mesh_x.reflect(normal=(0, 1, 0), point=(0, 0, 0))
+        mesh = mesh.merge([mesh_x, mesh_y, mesh_xy], merge_points=True)
+    elif( reflect_axis=="xz" ):
+        mesh_x = mesh.reflect(normal=(1, 0, 0), point=(0, 0, 0))
+        mesh_z = mesh.reflect(normal=(0, 0, 1), point=(0, 0, 0))
+        mesh_xz = mesh_x.reflect(normal=(0, 0, 1), point=(0, 0, 0))
+        mesh = mesh.merge([mesh_x, mesh_z, mesh_xz], merge_points=True)
 
-	plotter = pv.Plotter(off_screen=off_screen, window_size=(1200, 900))
-	plotter.add_mesh(mesh, color=color, show_edges=False, smooth_shading=True, scalars=view_scalar, cmap=["lightgrey", "red"])
-	if( extra_shape ):
-		plotter.add_mesh(extra_shape, color="yellow", smooth_shading=True, line_width=5)
+    plotter = pv.Plotter(off_screen=off_screen, window_size=(1200, 900))
+    plotter.add_mesh(mesh, color=color, show_edges=False, smooth_shading=True, scalars=view_scalar, cmap=["lightgrey", "red"])
+    if( extra_shape ):
+        plotter.add_mesh(extra_shape, color="yellow", smooth_shading=True, line_width=5)
 
-	# --- camera setup ---
-	center = [0, 0, 0]
-	if( reflect_axis=="xy" or reflect_axis==None ):
-		camera_pos = (center[0], center[1], center[2] + 3*radius_view) 
-		view_up = (0, 1, 0)
-	elif( reflect_axis=="xz" ):
-		camera_pos = (center[0], center[1] + 3*radius_view, center[2]) 
-		view_up = (0, 0, 1)
+    # --- camera setup ---
+    center = [0, 0, 0]
+    if( reflect_axis=="xy" or reflect_axis==None ):
+        camera_pos = (center[0], center[1], center[2] + 3*radius_view) 
+        view_up = (0, 1, 0)
+    elif( reflect_axis=="xz" ):
+        camera_pos = (center[0], center[1] + 3*radius_view, center[2]) 
+        view_up = (0, 0, 1)
 
-	plotter.camera_position = [
-		camera_pos,  # camera position
-		center,                                        # focal point
-		view_up,                                     # view-up
-	]
+    plotter.camera_position = [
+        camera_pos,  # camera position
+        center,                                        # focal point
+        view_up,                                     # view-up
+    ]
 
-	plotter.enable_parallel_projection()
-	plotter.camera.parallel_scale = radius_view
-	plotter.set_background("black")
-	plotter.show(auto_close=False)
+    plotter.enable_parallel_projection()
+    plotter.camera.parallel_scale = radius_view
+    plotter.set_background("black")
+    plotter.show(auto_close=False)
 
-	img = plotter.screenshot(return_img=True)
-	plotter.close()
+    img = plotter.screenshot(return_img=True)
+    plotter.close()
 
-	return img
-	
+    return img
+    
 
 
 def droplet_properties(filename):
-	file = open(filename, "rt")
-	line = file.readline()
-	line = file.readline()
-	line = file.readline()
-	line = file.readline()
-	line = file.readline()
+    file = open(filename, "rt")
+    line = file.readline()
+    line = file.readline()
+    line = file.readline()
+    line = file.readline()
+    line = file.readline()
 
-	droplet_radius = -1e+10
+    droplet_radius = -1e+10
 
-	num_points = int( line.split(" ")[1] )
-	# points = np.zeros(shape=(num_points, 2))
-	for i in range(num_points):
-		line = file.readline()
-		line = line.split(" ")
-		x = float(line[0])
-		y = float(line[1])
-		# points[i, 0] = x
-		# points[i, 1] = y
+    num_points = int( line.split(" ")[1] )
+    # points = np.zeros(shape=(num_points, 2))
+    for i in range(num_points):
+        line = file.readline()
+        line = line.split(" ")
+        x = float(line[0])
+        y = float(line[1])
+        # points[i, 0] = x
+        # points[i, 1] = y
 
-		if( y>droplet_radius ):
-			droplet_radius = y
+        if( y>droplet_radius ):
+            droplet_radius = y
 
-	file.close()
-	return droplet_radius
+    file.close()
+    return droplet_radius
 
-def read_tracer_particles(filename, previous_positions = None, periodic_box_size = None):
-	file = open(filename, "rt")
-	line = file.readline()
-	line = file.readline()
-	time = line.split(" ")[-1]
-	line = file.readline()
-	line = file.readline()
-	line = file.readline()
-
-	# Loading all the points into a numpy [n x 3] array
-	num_points = int( str(line).split(" ")[1] )
-	points = np.zeros(shape=(num_points, 2))
-	for i in range(num_points):
-		points[i, :] = np.array( file.readline().split(" ")[:2], dtype=float)
-
-
-	# Sometimes the particles can change ordering in Basilisk between timesteps
-	# If you provide the positions of particles in the previous timestep, we try below to identify the correct ordering
-	if( previous_positions is not None ):
-
-		if( periodic_box_size ):
-
-			# Expand arrays for broadcasting
-			dx = previous_positions[:, None, 0] - points[None, :, 0]
-			dy = previous_positions[:, None, 1] - points[None, :, 1]
-
-			# Apply periodic wrapping in x
-			dx = np.abs(dx)
-			dx = np.minimum(dx, periodic_box_size - dx)
-
-			# Standard Euclidean distance
-			dist_matrix = np.sqrt(dx**2 + dy**2)
-		else:
-			dist_matrix = cdist(previous_positions, points)  # Computing distance matrix: shape (N, N)
-
-		row_ind, col_ind = linear_sum_assignment(dist_matrix) # solving assignment problem between the consecutive timesteps
-		points = points[col_ind, :] # Reordering
-		
-	file.close()
-	return points
+def read_tracer_particles(filename, zipped_file=False):
+    if zipped_file:
+        zip_path, member = filename.split(".zip", 1)
+        mesh = read_vtk_from_zip(zip_path + ".zip", member.lstrip("/\\"))
+    else:
+        mesh = pv.read(filename) if os.path.isfile(filename) else None
+    return None if mesh is None else mesh.points[:, :2]
 
 def find_all_vtk_files_in_folder(folder_name):
-	temp_list_files = os.listdir(folder_name)
-	list_files = []
-	for file in temp_list_files:
-		if( file.startswith("Interface") and file.endswith(".vtk") ):
-			list_files.append( file[10:-4] )
-	list_files = np.sort(np.array(list_files).astype("float"))
+    temp_list_files = os.listdir(folder_name)
+    list_files = []
+    for file in temp_list_files:
+        if( file.startswith("Interface") and file.endswith(".vtk") ):
+            list_files.append( file[10:-4] )
+    list_files = np.sort(np.array(list_files).astype("float"))
 
-	return list_files
+    return list_files
 
 
 # def Read_VTK_As_Uniform_Grid(filename):
